@@ -12,11 +12,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug path
-        run: |
-          pwd
-          ls -laR
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -24,22 +19,36 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        working-directory: ./todo-frontend/frontend
 
       - name: Build frontend
         run: npm run build
-        working-directory: ./todo-frontend/frontend
+
+      - name: Prepare Kaniko build context
+        run: |
+          mkdir -p /home/admin/build/todo-frontend
+          cp Dockerfile /home/admin/build/todo-frontend/
+          cp nginx.conf /home/admin/build/todo-frontend/
+          cp -r dist /home/admin/build/todo-frontend/
+
+      - name: Create Kaniko build job
+        run: |
+          sudo k3s kubectl apply -f k8s/kaniko-build-job.yaml
+
+      - name: Wait for Kaniko build to finish
+        run: |
+          while [[ $(sudo k3s kubectl get job kaniko-build -o jsonpath='{.status.succeeded}') != "1" ]]; do
+            echo "Waiting for kaniko-build to finish..."
+            sleep 5
+          done
+
+      - name: Clean up Kaniko build job
+        run: |
+          sudo k3s kubectl delete job kaniko-build --ignore-not-found
 
       - name: Delete old deployment if exists
         run: |
           sudo k3s kubectl delete deployment todo-frontend --ignore-not-found
           sudo k3s kubectl delete service todo-frontend --ignore-not-found
-          sudo k3s kubectl delete configmap nginx-html --ignore-not-found
-
-      - name: Create ConfigMap from built files
-        run: |
-          sudo k3s kubectl create configmap nginx-html --from-file=dist/index.html --from-file=dist/assets
-        working-directory: ./todo-frontend/frontend
 
       - name: Apply Kubernetes manifests
         run: |

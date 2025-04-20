@@ -13,15 +13,7 @@ spec:
         app: todo-frontend
     spec:
       containers:
-        - name: nginx
-          image: nginx:latest
+        - name: todo-frontend
+          image: 192.168.1.160:49939/todo-frontend:latest
           ports:
             - containerPort: 80
-          volumeMounts:
-            - name: html-volume
-              mountPath: /usr/share/nginx/html/index.html
-              subPath: index.html
-      volumes:
-        - name: html-volume
-          configMap:
-            name: nginx-html

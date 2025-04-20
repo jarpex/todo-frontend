@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaniko-build
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace
+            - --dockerfile=/workspace/Dockerfile
+            - --destination=registry:5000/todo-frontend:latest
+            - --insecure
+            - --skip-tls-verify
+          volumeMounts:
+            - name: build-context
+              mountPath: /workspace
+      volumes:
+        - name: build-context
+          hostPath:
+            path: /home/admin/build/todo-frontend
+            type: Directory
+      restartPolicy: Never
