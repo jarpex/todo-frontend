@@ -21,7 +21,7 @@
 
   // ───────────────── helpers ─────────────────
   const authFetch = (t: string, init: RequestInit = {}) =>
-    fetch(`${API_BASE_URL}/todos`, {
+    fetch(`${API_BASE_URL}/todos/`, {
       ...init,
       headers: {
         ...(init.headers ?? {}),
