@@ -106,3 +106,36 @@ jobs:
         run: |
           ${{ env.KUBECTL }} apply -f k8s/deployment.yaml
           ${{ env.KUBECTL }} apply -f k8s/service.yaml
+
+  DAST:
+    runs-on: self-hosted
+    needs: [Build, SAST, Kaniko-deploy]
+    env:
+      KUBECTL: sudo k3s kubectl
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ZAP DAST scan in cluster
+        run: |
+          ${{ env.KUBECTL }} delete job zap-frontend-dast-scan --ignore-not-found
+          ${{ env.KUBECTL }} apply -f /home/admin/k8s/zap-frontend-dast-job.yaml
+
+          echo "⏳ Waiting for ZAP DAST scan to complete..."
+          while [[ $(${{ env.KUBECTL }} get job zap-frontend-dast-scan -o jsonpath='{.status.succeeded}') != "1" ]]; do
+            if [[ $(${{ env.KUBECTL }} get job zap-frontend-dast-scan -o jsonpath='{.status.failed}') == "1" ]]; then
+              echo "❌ ZAP DAST scan failed."
+              ${{ env.KUBECTL }} logs job/zap-frontend-dast-scan
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "✅ ZAP DAST scan passed."
+
+      - name: Upload ZAP SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: /home/admin/build/zap-frontend-output/zap-frontend-results.sarif.json
+          checkout_path: /home/admin/thesis-frontend-runner/_work/todo-frontend/todo-frontend
