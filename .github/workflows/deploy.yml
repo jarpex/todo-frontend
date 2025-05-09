@@ -5,9 +5,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
-  deploy:
+  Build:
     runs-on: self-hosted
+    env:
+      KUBECTL: sudo k3s kubectl
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,6 +30,48 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  SAST:
+    runs-on: self-hosted
+    needs: Build
+    env:
+      KUBECTL: sudo k3s kubectl
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: SAST – Run Semgrep scan in-cluster
+        run: |
+          ${{ env.KUBECTL }} delete job semgrep-frontend-scan --ignore-not-found
+          ${{ env.KUBECTL }} apply -f /home/admin/k8s/semgrep-frontend-job.yaml
+
+          echo "⏳ Waiting for Semgrep job to complete..."
+          while [[ $(${{ env.KUBECTL }} get job semgrep-frontend-scan -o jsonpath='{.status.succeeded}') != "1" ]]; do
+            if [[ $(${{ env.KUBECTL }} get job semgrep-frontend-scan -o jsonpath='{.status.failed}') == "1" ]]; then
+              echo "❌ Semgrep scan failed in cluster. Deployment halted."
+              ${{ env.KUBECTL }} logs job/semgrep-frontend-scan
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "✅ Semgrep scan passed."
+
+      - name: Upload Semgrep SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: /home/admin/build/todo-frontend/semgrep-results.sarif
+
+  Kaniko-deploy:
+    runs-on: self-hosted
+    needs: [Build, SAST]
+    env:
+      KUBECTL: sudo k3s kubectl
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Prepare Kaniko build context
         run: |
           mkdir -p /home/admin/build/todo-frontend
@@ -32,25 +81,25 @@ jobs:
 
       - name: Create Kaniko build job
         run: |
-          sudo k3s kubectl apply -f k8s/kaniko-build-job.yaml
+          ${{ env.KUBECTL }} apply -f k8s/kaniko-build-job.yaml
 
       - name: Wait for Kaniko build to finish
         run: |
-          while [[ $(sudo k3s kubectl get job kaniko-build -o jsonpath='{.status.succeeded}') != "1" ]]; do
+          while [[ $(${{ env.KUBECTL }} get job kaniko-build -o jsonpath='{.status.succeeded}') != "1" ]]; do
             echo "Waiting for kaniko-build to finish..."
             sleep 5
           done
 
       - name: Clean up Kaniko build job
         run: |
-          sudo k3s kubectl delete job kaniko-build --ignore-not-found
+          ${{ env.KUBECTL }} delete job kaniko-build --ignore-not-found
 
       - name: Delete old deployment if exists
         run: |
-          sudo k3s kubectl delete deployment todo-frontend --ignore-not-found
-          sudo k3s kubectl delete service todo-frontend --ignore-not-found
+          ${{ env.KUBECTL }} delete deployment todo-frontend --ignore-not-found
+          ${{ env.KUBECTL }} delete service todo-frontend --ignore-not-found
 
       - name: Apply Kubernetes manifests
         run: |
-          sudo k3s kubectl apply -f k8s/deployment.yaml
-          sudo k3s kubectl apply -f k8s/service.yaml
+          ${{ env.KUBECTL }} apply -f k8s/deployment.yaml
+          ${{ env.KUBECTL }} apply -f k8s/service.yaml
