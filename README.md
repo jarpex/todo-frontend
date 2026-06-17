@@ -1,47 +1,61 @@
-# Svelte + TS + Vite
+> [!NOTE]
+> This repository represents a completed project stable since 2025. All subsequent commits are strictly limited to documentation updates and cosmetic formatting.
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+# Secure Svelte Frontend (SSDLC Reference)
 
-## Recommended IDE Setup
+The frontend single-page application (SPA) for an advanced task management application. It serves as an SSDLC reference implementation and was built to test a non-standard, custom UX approach for managing tasks.
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+## Tech Stack
 
-## Need an official Svelte framework?
+- **Core:** Svelte, TypeScript, Vite
+- **UI & Styling:** Skeleton UI, Tailwind CSS
+- **Routing & State:** `svelte-spa-router`, Native Svelte stores (writable)
+- **API Client:** Native fetch API (configured via Vite environment variables)
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+## Architecture & Security Hardening
 
-## Technical considerations
+- **Production Containerization:** Built as a lightweight, production-ready Docker image based on Nginx (Alpine) to minimize the attack surface. Nginx is configured to serve static assets and handle SPA client-side routing (fallback to `index.html`).
+- **Session Security:** JWT authentication tokens are managed securely through reactive Svelte stores and isolated via browser storage.
+- **Network & Ingress Architecture:**
+  The frontend is deployed within a secure K3s cluster behind an edge infrastructure layout:
 
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store';
-export default writable(0);
+```text
+  [ Public Web Traffic ] ──► Cloudflare WAF (DDoS/SSL) ──► Nginx VPS (Reverse Proxy)
+                                                                 │
+                                                            [ OpenVPN ]
+                                                                 │
+  [ Isolated Server VLAN ] ◄─── K3s NodePort Service ◄─── Edge Router/FW
 ```
+
+## DevSecOps Pipeline (GitHub Actions)
+
+The repository integrates into a fully automated Shift-Left CI/CD pipeline executing on self-hosted K3s runners:
+
+```text
+Code Change ➔ Git Commit ➔ GitHub Actions (Self-hosted K3s)
+                                      │
+    ┌─────────────────────────────────┴────────────────────────────────┐
+    ▼                                                                  ▼
+SCA (Dependabot CVE Scan)                                   SAST (CodeQL & Semgrep Job)
+    │                                                                  │
+    └─────────────────────────────────┬────────────────────────────────┘
+                                      ▼
+                             Kaniko (Daemonless Build)
+                                      │
+                                      ▼
+                             K3s Deployment (Internal)
+                                      │
+                                      ▼
+                             DAST (OWASP ZAP Job)
+                                      │
+                                      ▼
+                        SARIF Export ➔ GitHub Security Dashboard
+```
+
+1. SAST & SCA: Static code analysis via Semgrep and CodeQL, combined with daily automated dependency vulnerability scans via GitHub Dependabot. Pipeline compilation terminates immediately upon detecting critical vulnerabilities.
+2. Daemonless Container Builds: Uses Kaniko inside the K3s cluster to compile the production Svelte application into an Nginx image without requiring root or host Docker socket access.
+3. Dynamic Security Audits (DAST): Automated OWASP ZAP scanning targeted directly at internal cluster routing endpoints post-deployment to evaluate raw client/routing application logic.
+
+## Related Repositories
+
+- [ssdlc-fastapi-backend](https://github.com/jarpex/ssdlc-fastapi-backend) — Secure FastAPI RESTful API backend featuring dynamic HashiCorp Vault secret injection and the same DevSecOps infrastructure.
